@@ -1,2 +1,91 @@
-# ai-github-worker
-ai-github-worker is a lightweight, single-Docker MVP system that turns GitHub issues and pull requests into executable AI tasks. It uses a SQLite-based job queue and a subprocess worker model to run Codex-driven code generation, validation, and GitHub feedback without requiring additional infrastructure.
+# Docker AI MVP（單容器）
+
+以單一容器完成 GitHub webhook -> SQLite queue -> Codex 自動處理 issue -> 發出 PR 的最小可行流程。
+
+## 功能摘要
+
+1. 支援 webhook：issues（opened/labeled）、pull_request（opened）
+2. 使用 SQLite（`data/queue.db`）作為唯一 queue
+3. scheduler 每 5 秒 claim 一筆 job，透過 `data/worker.lock` 保證單工 worker
+4. issue webhook 進來後，worker 會以 issue title/body 驅動 Codex 無人介入執行，成功後自動 push branch 並發 PR
+
+## Webhook 與 Clone
+
+1. webhook 會帶入 `repository` 資訊
+2. 目前 worker 至少會使用 `repository.full_name`
+3. clone 採 SSH 形式：`git@github.com:owner/repo.git`
+4. 因此容器必須可讀取 host 掛載進來的 SSH key 與 `known_hosts`
+
+## 快速啟動（Podman）
+
+```bash
+cp local.env.example local.env
+# 編輯 local.env
+
+ls ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+./create.sh
+curl http://localhost:8080/healthz
+```
+
+若你已在 host 上完成 `codex login`，容器也可透過掛載的 `~/.codex` 直接沿用登入狀態。
+
+`local.env` 不會被提交，適合放 token、webhook secret、`CODEX_API_KEY` 與本機路徑。
+
+## 常用指令
+
+```bash
+./create.sh
+./stop.sh
+./destroy.sh
+```
+
+1. `create.sh`：build image，建立或啟動 container
+2. `stop.sh`：停止 container
+3. `destroy.sh`：停止並刪除 container
+
+## 一鍵 Dry-Run 驗證（推薦）
+
+```bash
+python scripts/e2e_dry_run_check.py \
+  --secret "$GITHUB_WEBHOOK_SECRET" \
+  --repo your-org/your-repo \
+  --db data/queue.db \
+  --timeout 30
+```
+
+成功條件：
+
+1. webhook 回傳 queued 並產生 `job_id`
+2. job 在 timeout 內轉為 `done`
+3. 腳本輸出 JSON，且 exit code 為 0
+
+## GitHub Webhook 設定
+
+1. URL：`http://<your-host>:8080/webhook`
+2. Content type：`application/json`
+3. Secret：`GITHUB_WEBHOOK_SECRET`
+4. Events：Issues、Pull requests
+
+## 驗收目標（MVP）
+
+1. GitHub Issue -> webhook -> SQLite
+2. scheduler 啟動 worker
+3. worker 讀取 issue 內容並 clone Angular repo
+4. Codex 在無人介入下完成修改
+5. lint/test/storybook 成功
+6. push `ai/{job_id}` 並建立 PR
+7. GitHub comment 回寫結果
+8. 全程只用一個容器執行（目前以 Podman 啟動）
+
+## 文件
+
+1. `docs/architecture.md`
+2. `docs/git-access.md`
+3. `docs/codex-setup.md`
+4. `docs/sqlite-schema.md`
+5. `docs/run-flow.md`
+
+## 其他
+
+1. `docker-compose.yml` 仍保留作為參考配置
+2. 正式啟動方式以 `create.sh` + Podman 為主
