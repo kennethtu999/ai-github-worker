@@ -7,3 +7,4 @@ local.env
 repos/*
 !repos/.gitkeep
 data/worker.lock
+data/queue.db

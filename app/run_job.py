@@ -115,14 +115,19 @@ def _simulate_repo_changes(repo_dir: Path, job_id: str) -> None:
 
 
 def _comment_success(github: GitHubClient, job: Dict, branch: str) -> None:
-    body = (
-        "✅ Job completed\n"
-        f"Branch: {branch}\n"
-        "Checks: lint/test/storybook passed"
-    )
     if job.get("issue_number"):
+        body = (
+            "✅ Job completed\n"
+            f"Branch: {branch}\n"
+            "Checks: lint/test/storybook passed"
+        )
         github.create_issue_comment(job["repo"], int(job["issue_number"]), body)
     if job.get("pr_number"):
+        body = (
+            "✅ Review completed\n"
+            f"Branch: {branch}\n"
+            "Codex review applied"
+        )
         github.create_issue_comment(job["repo"], int(job["pr_number"]), body)
 
 
@@ -166,7 +171,14 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
         return "failed", {"step": "load_job", "error": "job not found"}
 
     repo = job["repo"]
-    branch = f"ai/{job_id}"
+    is_issue_job = bool(job.get("issue_number"))
+    if is_issue_job:
+        branch = f"feature/{job['issue_number']}"
+    elif job.get("pr_number"):
+        pr_payload = (job.get("payload") or {}).get("pull_request") or {}
+        branch = pr_payload.get("head", {}).get("ref") or f"ai/{job_id}"
+    else:
+        branch = f"ai/{job_id}"
     clone_url = f"git@github.com:{repo}.git"
     model = (job.get("model") or "").strip() or None
     workspace = create_workspace(job_id)
@@ -198,7 +210,13 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
             }
 
         _run_cmd("clone", ["git", "clone", clone_url, str(repo_dir)], workspace, job_id)
-        _run_cmd("checkout", ["git", "checkout", "-b", branch], repo_dir, job_id)
+        if is_issue_job:
+            _run_cmd("checkout_base", ["git", "checkout", DEFAULT_BASE_BRANCH], repo_dir, job_id)
+            _run_cmd("pull_base", ["git", "pull", "origin", DEFAULT_BASE_BRANCH], repo_dir, job_id)
+            _run_cmd("checkout_branch", ["git", "checkout", "-b", branch], repo_dir, job_id)
+        else:
+            _run_cmd("checkout_branch", ["git", "checkout", branch], repo_dir, job_id)
+            _run_cmd("pull_branch", ["git", "pull", "origin", branch], repo_dir, job_id)
 
         prompt_file = _prepare_prompt(job, workspace)
         codex_log_file = _codex_log_path(job_id)
@@ -210,28 +228,28 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
             raise StepError("codex", str(exc)) from exc
         _log_job(job_id, "codex_succeeded", codex_log=str(codex_log_file))
 
-        _run_cmd("npm_ci", ["npm", "ci"], repo_dir, job_id)
-        _run_cmd("lint", ["npm", "run", "lint"], repo_dir, job_id)
-        _run_cmd("test", ["npm", "test", "--", "--watch=false"], repo_dir, job_id)
-        _run_cmd("storybook", ["npm", "run", "build-storybook"], repo_dir, job_id)
-
-        _run_cmd("git_add", ["git", "add", "-A"], repo_dir, job_id)
-        commit_msg = f"chore(ai): apply codex updates for {job_id}"
-        _log_job(job_id, "step_started", step="git_diff_check", cwd=str(repo_dir))
-        diff_check = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"],
-            cwd=repo_dir,
-            check=False,
-        )
-        if diff_check.returncode == 0:
-            _log_job(job_id, "step_failed", step="git_diff_check", cwd=str(repo_dir), error="no code changes produced for pull request")
-            raise StepError("git_commit", "no code changes produced for pull request")
-        _log_job(job_id, "step_succeeded", step="git_diff_check", cwd=str(repo_dir))
-        _run_cmd("git_commit", ["git", "commit", "-m", commit_msg], repo_dir, job_id)
-        _run_cmd("git_push", ["git", "push", "-u", "origin", branch], repo_dir, job_id)
-
         pr_url = None
-        if job.get("issue_number"):
+        if is_issue_job:
+            _run_cmd("npm_ci", ["npm", "ci"], repo_dir, job_id)
+            _run_cmd("lint", ["npm", "run", "lint"], repo_dir, job_id)
+            _run_cmd("test", ["npm", "test", "--", "--watch=false"], repo_dir, job_id)
+            _run_cmd("storybook", ["npm", "run", "build-storybook"], repo_dir, job_id)
+
+            _run_cmd("git_add", ["git", "add", "-A"], repo_dir, job_id)
+            commit_msg = f"feat(ai): resolve issue #{job['issue_number']}"
+            _log_job(job_id, "step_started", step="git_diff_check", cwd=str(repo_dir))
+            diff_check = subprocess.run(
+                ["git", "diff", "--cached", "--quiet"],
+                cwd=repo_dir,
+                check=False,
+            )
+            if diff_check.returncode == 0:
+                _log_job(job_id, "step_failed", step="git_diff_check", cwd=str(repo_dir), error="no code changes produced for pull request")
+                raise StepError("git_commit", "no code changes produced for pull request")
+            _log_job(job_id, "step_succeeded", step="git_diff_check", cwd=str(repo_dir))
+            _run_cmd("git_commit", ["git", "commit", "-m", commit_msg], repo_dir, job_id)
+            _run_cmd("git_push", ["git", "push", "-u", "origin", branch], repo_dir, job_id)
+
             _log_job(job_id, "pr_create_started", branch=branch)
             pr_response = github.create_pull_request(
                 repo=repo,
@@ -242,10 +260,13 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
             )
             pr_url = pr_response.get("html_url")
             _log_job(job_id, "pr_create_succeeded", pr_url=pr_url)
+
         _comment_success(github, job, branch)
         _log_job(job_id, "comment_success_posted", branch=branch)
 
-        result = {"branch": branch, "checks": "lint/test/storybook passed"}
+        result: Dict = {"branch": branch}
+        if is_issue_job:
+            result["checks"] = "lint/test/storybook passed"
         if model:
             result["model"] = model
         if codex_log_file is not None:
