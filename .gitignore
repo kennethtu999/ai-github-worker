@@ -8,3 +8,4 @@ repos/*
 !repos/.gitkeep
 data/worker.lock
 data/queue.db
+data/worker_logs/
