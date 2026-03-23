@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +40,45 @@ def _run_cmd(step: str, cmd: list[str], cwd: Path, job_id: str) -> None:
         )
         raise StepError(step, str(exc)) from exc
     _log_job(job_id, "step_succeeded", step=step, command=cmd, cwd=str(cwd))
+
+
+def _run_clone_ssh(clone_url: str, repo_dir: Path, workspace: Path, job_id: str) -> None:
+    ssh_key = os.getenv("SSH_PRIVATE_KEY_PATH", "/root/.ssh/id_ed25519")
+    ssh_known_hosts = os.getenv("SSH_KNOWN_HOSTS_PATH", "/root/.ssh/known_hosts")
+    ssh_cmd = (
+        "ssh "
+        f"-i {ssh_key} "
+        "-o IdentitiesOnly=yes "
+        "-o StrictHostKeyChecking=yes "
+        f"-o UserKnownHostsFile={ssh_known_hosts}"
+    )
+
+    env = os.environ.copy()
+    env["GIT_SSH_COMMAND"] = ssh_cmd
+
+    cmd = ["git", "clone", clone_url, str(repo_dir)]
+    _log_job(
+        job_id,
+        "step_started",
+        step="clone",
+        command=cmd,
+        cwd=str(workspace),
+        git_ssh_command=ssh_cmd,
+    )
+    try:
+        subprocess.run(cmd, cwd=workspace, check=True, env=env)
+    except subprocess.CalledProcessError as exc:
+        _log_job(
+            job_id,
+            "step_failed",
+            step="clone",
+            command=cmd,
+            cwd=str(workspace),
+            git_ssh_command=ssh_cmd,
+            error=str(exc),
+        )
+        raise StepError("clone", str(exc)) from exc
+    _log_job(job_id, "step_succeeded", step="clone", command=cmd, cwd=str(workspace))
 
 
 def _codex_log_path(job_id: str) -> Path:
@@ -209,7 +249,7 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
                 "dry_run": True,
             }
 
-        _run_cmd("clone", ["git", "clone", clone_url, str(repo_dir)], workspace, job_id)
+        _run_clone_ssh(clone_url, repo_dir, workspace, job_id)
         if is_issue_job:
             _run_cmd("checkout_base", ["git", "checkout", DEFAULT_BASE_BRANCH], repo_dir, job_id)
             _run_cmd("pull_base", ["git", "pull", "origin", DEFAULT_BASE_BRANCH], repo_dir, job_id)
