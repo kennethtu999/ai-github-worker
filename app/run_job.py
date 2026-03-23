@@ -3,10 +3,10 @@ import json
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from codex_runner import run_codex
-from config import DEFAULT_BASE_BRANCH, PROMPTS_DIR, WORKER_DRY_RUN
+from config import CODEX_LOGS_DIR, DEFAULT_BASE_BRANCH, PROMPTS_DIR, WORKER_DRY_RUN
 from db import get_job, update_job_status
 from github_client import GitHubClient
 from workspace import cleanup_workspace, create_workspace, remove_lock
@@ -24,6 +24,11 @@ def _run_cmd(step: str, cmd: list[str], cwd: Path) -> None:
         subprocess.run(cmd, cwd=cwd, check=True)
     except subprocess.CalledProcessError as exc:
         raise StepError(step, str(exc)) from exc
+
+
+def _codex_log_path(job_id: str) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return CODEX_LOGS_DIR / f"{job_id}-{timestamp}.log"
 
 
 def _prepare_prompt(job: Dict, workspace: Path) -> Path:
@@ -146,9 +151,11 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
     repo = job["repo"]
     branch = f"ai/{job_id}"
     clone_url = f"git@github.com:{repo}.git"
+    model = (job.get("model") or "").strip() or None
     workspace = create_workspace(job_id)
     repo_dir = workspace / "repo"
     github = GitHubClient()
+    codex_log_file: Optional[Path] = None
 
     try:
         if WORKER_DRY_RUN:
@@ -168,8 +175,9 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
 
         # 4. run Codex
         prompt_file = _prepare_prompt(job, workspace)
+        codex_log_file = _codex_log_path(job_id)
         try:
-            run_codex(prompt_file, repo_dir)
+            run_codex(prompt_file, repo_dir, codex_log_file, model=model)
         except Exception as exc:
             raise StepError("codex", str(exc)) from exc
 
@@ -206,6 +214,10 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
         _comment_success(github, job, branch)
 
         result = {"branch": branch, "checks": "lint/test/storybook passed"}
+        if model:
+            result["model"] = model
+        if codex_log_file is not None:
+            result["codex_log"] = str(codex_log_file)
         if pr_url:
             result["pr_url"] = pr_url
         return "done", result
@@ -214,13 +226,19 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
             _comment_failure(github, job, exc.step, exc.detail)
         except Exception:
             pass
-        return "failed", {"step": exc.step, "error": exc.detail}
+        result = {"step": exc.step, "error": exc.detail}
+        if codex_log_file is not None:
+            result["codex_log"] = str(codex_log_file)
+        return "failed", result
     except Exception as exc:
         try:
             _comment_failure(github, job, "unexpected", str(exc))
         except Exception:
             pass
-        return "failed", {"step": "unexpected", "error": str(exc)}
+        result = {"step": "unexpected", "error": str(exc)}
+        if codex_log_file is not None:
+            result["codex_log"] = str(codex_log_file)
+        return "failed", result
     finally:
         cleanup_workspace(workspace)
 

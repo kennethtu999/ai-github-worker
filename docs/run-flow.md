@@ -17,8 +17,8 @@
 1. 建立 `/repos/{job_id}`
 2. clone repo
 3. checkout `ai/{job_id}`
-4. 讀取 issue title/body 或 PR 內容，組成 prompt
-5. 以 `codex exec --ask-for-approval never` 無人介入執行 Codex
+4. 讀取 issue title/body 或 PR 內容，組成 prompt；若包含 `/model <name>` 則記錄 model
+5. 以 `codex exec --ask-for-approval never [--model <name>]` 無人介入執行 Codex
 6. `npm ci`
 7. `npm run lint`
 8. `npm test -- --watch=false`

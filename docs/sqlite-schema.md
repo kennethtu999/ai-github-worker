@@ -11,6 +11,7 @@ CREATE TABLE jobs (
   pr_number INTEGER,
   task_type TEXT,
   mode TEXT,
+  model TEXT,
   status TEXT,
   payload_json TEXT,
   created_at TEXT,

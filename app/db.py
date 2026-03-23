@@ -39,6 +39,7 @@ def init_db() -> None:
               pr_number INTEGER,
               task_type TEXT,
               mode TEXT,
+                            model TEXT,
               status TEXT,
               payload_json TEXT,
               created_at TEXT,
@@ -53,7 +54,16 @@ def init_db() -> None:
             );
             """
         )
+        _ensure_jobs_column(conn, "model", "TEXT")
         conn.commit()
+
+
+def _ensure_jobs_column(conn: sqlite3.Connection, name: str, sql_type: str) -> None:
+    rows = conn.execute("PRAGMA table_info(jobs)").fetchall()
+    existing = {row[1] for row in rows}
+    if name in existing:
+        return
+    conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}")
 
 
 def is_event_processed(event_id: str) -> bool:
@@ -80,9 +90,9 @@ def enqueue_job(job: Dict[str, Any]) -> None:
             """
             INSERT INTO jobs (
               id, event_id, repo, issue_number, pr_number,
-              task_type, mode, status, payload_json,
-              created_at, started_at, finished_at, result_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            task_type, mode, model, status, payload_json,
+                            created_at, started_at, finished_at, result_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job["id"],
@@ -92,6 +102,7 @@ def enqueue_job(job: Dict[str, Any]) -> None:
                 job.get("pr_number"),
                 job.get("task_type"),
                 job.get("mode"),
+                                job.get("model"),
                 "queued",
                 json.dumps(job.get("payload", {}), ensure_ascii=False),
                 now_iso(),
@@ -152,6 +163,7 @@ def _row_to_job_dict(row: sqlite3.Row) -> Dict[str, Any]:
         "pr_number": row["pr_number"],
         "task_type": row["task_type"],
         "mode": row["mode"],
+        "model": row["model"],
         "status": row["status"],
         "payload": json.loads(row["payload_json"] or "{}"),
         "created_at": row["created_at"],

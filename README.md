@@ -8,6 +8,8 @@
 2. 使用 SQLite（`data/queue.db`）作為唯一 queue
 3. scheduler 每 5 秒 claim 一筆 job，透過 `data/worker.lock` 保證單工 worker
 4. issue webhook 進來後，worker 會以 issue title/body 驅動 Codex 無人介入執行，成功後自動 push branch 並發 PR
+5. 每次 `codex exec` 的輸出都會保留在 `data/codex_logs/`（可用 `CODEX_LOGS_DIR` 覆寫）
+6. 可在 issue 或 PR 內文加入 `/model <model_name>` 指定本次 Codex 模型
 
 ## Webhook 與 Clone
 
@@ -30,6 +32,16 @@ curl http://localhost:8080/healthz
 若你已在 host 上完成 `codex login`，容器也可透過掛載的 `~/.codex` 直接沿用登入狀態。
 
 `local.env` 不會被提交，適合放 token、webhook secret、`CODEX_API_KEY` 與本機路徑。
+
+若要保留每次 Codex 執行記錄，可設定 `CODEX_LOGS_DIR`。預設會寫到 `data/codex_logs`，檔名格式為 `{job_id}-{utc_timestamp}.log`。
+
+若要指定單次 job 的模型，可在 issue 或 PR 內文任一行加入：
+
+```text
+/model gpt-5.3-codex
+```
+
+worker 會在執行時套用 `codex exec --model <model_name>`。
 
 ## 常用指令
 
