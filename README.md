@@ -15,16 +15,14 @@
 
 1. webhook 會帶入 `repository` 資訊
 2. 目前 worker 至少會使用 `repository.full_name`
-3. clone 採 SSH 形式：`git@github.com:owner/repo.git`
-4. 因此容器必須可讀取 host 掛載進來的 SSH key 與 `known_hosts`
+3. clone 採 HTTPS + `GITHUB_TOKEN`（PAT）
+4. PAT 需具備 repo 讀寫權限（至少要能 clone / push / 建立 PR / issue comment）
 
 ## 快速啟動（Podman）
 
 ```bash
 cp local.env.example local.env
 # 編輯 local.env
-
-ls ~/.ssh/id_ed25519 ~/.ssh/known_hosts
 ./create.sh
 curl http://localhost:8080/healthz
 ```

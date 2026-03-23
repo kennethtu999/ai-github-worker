@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from codex_runner import run_codex
-from config import CODEX_LOGS_DIR, DEFAULT_BASE_BRANCH, PROMPTS_DIR, WORKER_DRY_RUN
+from config import CODEX_LOGS_DIR, DEFAULT_BASE_BRANCH, GITHUB_TOKEN, PROMPTS_DIR, WORKER_DRY_RUN
 from db import get_job, update_job_status
 from github_client import GitHubClient
 from workspace import cleanup_workspace, create_workspace, remove_lock
@@ -42,43 +42,34 @@ def _run_cmd(step: str, cmd: list[str], cwd: Path, job_id: str) -> None:
     _log_job(job_id, "step_succeeded", step=step, command=cmd, cwd=str(cwd))
 
 
-def _run_clone_ssh(clone_url: str, repo_dir: Path, workspace: Path, job_id: str) -> None:
-    ssh_key = os.getenv("SSH_PRIVATE_KEY_PATH", "/root/.ssh/id_ed25519")
-    ssh_known_hosts = os.getenv("SSH_KNOWN_HOSTS_PATH", "/root/.ssh/known_hosts")
-    ssh_cmd = (
-        "ssh "
-        f"-i {ssh_key} "
-        "-o IdentitiesOnly=yes "
-        "-o StrictHostKeyChecking=yes "
-        f"-o UserKnownHostsFile={ssh_known_hosts}"
-    )
+def _github_git_env() -> Dict[str, str]:
+    token = GITHUB_TOKEN.strip()
+    if not token:
+        raise StepError("github_auth", "GITHUB_TOKEN is empty")
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: Bearer {token}",
+    }
 
-    env = os.environ.copy()
-    env["GIT_SSH_COMMAND"] = ssh_cmd
 
-    cmd = ["git", "clone", clone_url, str(repo_dir)]
-    _log_job(
-        job_id,
-        "step_started",
-        step="clone",
-        command=cmd,
-        cwd=str(workspace),
-        git_ssh_command=ssh_cmd,
-    )
+def _run_git_with_token(step: str, cmd: list[str], cwd: Path, job_id: str) -> None:
+    _log_job(job_id, "step_started", step=step, command=cmd, cwd=str(cwd), auth="github_token")
+    env = {**os.environ, **_github_git_env()}
     try:
-        subprocess.run(cmd, cwd=workspace, check=True, env=env)
+        subprocess.run(cmd, cwd=cwd, check=True, env=env)
     except subprocess.CalledProcessError as exc:
         _log_job(
             job_id,
             "step_failed",
-            step="clone",
+            step=step,
             command=cmd,
-            cwd=str(workspace),
-            git_ssh_command=ssh_cmd,
+            cwd=str(cwd),
+            auth="github_token",
             error=str(exc),
         )
-        raise StepError("clone", str(exc)) from exc
-    _log_job(job_id, "step_succeeded", step="clone", command=cmd, cwd=str(workspace))
+        raise StepError(step, str(exc)) from exc
+    _log_job(job_id, "step_succeeded", step=step, command=cmd, cwd=str(cwd), auth="github_token")
 
 
 def _codex_log_path(job_id: str) -> Path:
@@ -219,7 +210,7 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
         branch = pr_payload.get("head", {}).get("ref") or f"ai/{job_id}"
     else:
         branch = f"ai/{job_id}"
-    clone_url = f"git@github.com:{repo}.git"
+    clone_url = f"https://github.com/{repo}.git"
     model = (job.get("model") or "").strip() or None
     workspace = create_workspace(job_id)
     repo_dir = workspace / "repo"
@@ -249,14 +240,14 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
                 "dry_run": True,
             }
 
-        _run_clone_ssh(clone_url, repo_dir, workspace, job_id)
+        _run_git_with_token("clone", ["git", "clone", clone_url, str(repo_dir)], workspace, job_id)
         if is_issue_job:
             _run_cmd("checkout_base", ["git", "checkout", DEFAULT_BASE_BRANCH], repo_dir, job_id)
-            _run_cmd("pull_base", ["git", "pull", "origin", DEFAULT_BASE_BRANCH], repo_dir, job_id)
+            _run_git_with_token("pull_base", ["git", "pull", "origin", DEFAULT_BASE_BRANCH], repo_dir, job_id)
             _run_cmd("checkout_branch", ["git", "checkout", "-b", branch], repo_dir, job_id)
         else:
             _run_cmd("checkout_branch", ["git", "checkout", branch], repo_dir, job_id)
-            _run_cmd("pull_branch", ["git", "pull", "origin", branch], repo_dir, job_id)
+            _run_git_with_token("pull_branch", ["git", "pull", "origin", branch], repo_dir, job_id)
 
         prompt_file = _prepare_prompt(job, workspace)
         codex_log_file = _codex_log_path(job_id)
@@ -288,7 +279,7 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
                 raise StepError("git_commit", "no code changes produced for pull request")
             _log_job(job_id, "step_succeeded", step="git_diff_check", cwd=str(repo_dir))
             _run_cmd("git_commit", ["git", "commit", "-m", commit_msg], repo_dir, job_id)
-            _run_cmd("git_push", ["git", "push", "-u", "origin", branch], repo_dir, job_id)
+            _run_git_with_token("git_push", ["git", "push", "-u", "origin", branch], repo_dir, job_id)
 
             _log_job(job_id, "pr_create_started", branch=branch)
             pr_response = github.create_pull_request(

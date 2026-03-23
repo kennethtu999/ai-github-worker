@@ -8,8 +8,6 @@ services:
       - ./data:/app/data
       - ./repos:/app/repos
       - ~/.codex:/root/.codex
-      - ~/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
-      - ~/.ssh/known_hosts:/root/.ssh/known_hosts:ro
     environment:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}

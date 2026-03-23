@@ -26,16 +26,6 @@ set +a
 
 mkdir -p "$ROOT_DIR/data" "$ROOT_DIR/repos"
 
-if [ ! -f "$SSH_PRIVATE_KEY" ]; then
-  echo "SSH private key not found: $SSH_PRIVATE_KEY"
-  exit 1
-fi
-
-if [ ! -f "$SSH_KNOWN_HOSTS" ]; then
-  echo "SSH known_hosts not found: $SSH_KNOWN_HOSTS"
-  exit 1
-fi
-
 if [ ! -d "$CODEX_AUTH_DIR" ]; then
   if [ -n "${CODEX_API_KEY:-}" ]; then
     mkdir -p "$CODEX_AUTH_DIR"
@@ -67,8 +57,6 @@ podman run -d \
   -v "$ROOT_DIR/data:/app/data" \
   -v "$ROOT_DIR/repos:/app/repos" \
   -v "$CODEX_AUTH_DIR:/root/.codex" \
-  -v "$SSH_PRIVATE_KEY:/root/.ssh/id_ed25519:ro" \
-  -v "$SSH_KNOWN_HOSTS:/root/.ssh/known_hosts:ro" \
   -e GITHUB_TOKEN="$GITHUB_TOKEN" \
   -e GITHUB_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET" \
   -e CODEX_API_KEY="${CODEX_API_KEY:-}" \
