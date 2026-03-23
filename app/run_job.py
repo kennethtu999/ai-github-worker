@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from codex_runner import run_codex
-from config import CODEX_LOGS_DIR, DEFAULT_BASE_BRANCH, GITHUB_TOKEN, PROMPTS_DIR, WORKER_DRY_RUN
+import base64
+
+from config import CODEX_LOGS_DIR, DEFAULT_BASE_BRANCH, GITHUB_HOST, GITHUB_TOKEN, GITHUB_USER, PROMPTS_DIR, WORKER_DRY_RUN
 from db import get_job, update_job_status
 from github_client import GitHubClient
 from workspace import cleanup_workspace, create_workspace, remove_lock
@@ -44,12 +46,17 @@ def _run_cmd(step: str, cmd: list[str], cwd: Path, job_id: str) -> None:
 
 def _github_git_env() -> Dict[str, str]:
     token = GITHUB_TOKEN.strip()
+    user = GITHUB_USER.strip()
     if not token:
         raise StepError("github_auth", "GITHUB_TOKEN is empty")
+    if not user:
+        raise StepError("github_auth", "GITHUB_USER is empty")
+    credential = base64.b64encode(f"{user}:{token}".encode()).decode()
+    host = GITHUB_HOST.strip() or "github.com"
     return {
         "GIT_CONFIG_COUNT": "1",
-        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-        "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: Bearer {token}",
+        "GIT_CONFIG_KEY_0": f"http.https://{host}/.extraheader",
+        "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: Basic {credential}",
     }
 
 
@@ -210,7 +217,7 @@ def process_job(job_id: str) -> Tuple[str, Dict]:
         branch = pr_payload.get("head", {}).get("ref") or f"ai/{job_id}"
     else:
         branch = f"ai/{job_id}"
-    clone_url = f"https://github.com/{repo}.git"
+    clone_url = f"https://{GITHUB_HOST}/{repo}.git"
     model = (job.get("model") or "").strip() or None
     workspace = create_workspace(job_id)
     repo_dir = workspace / "repo"

@@ -2,17 +2,30 @@ from typing import Any, Dict, Optional
 
 import requests
 
-from config import GITHUB_TOKEN
+import base64
+
+from config import GITHUB_HOST, GITHUB_TOKEN, GITHUB_USER
 
 
 class GitHubClient:
     def __init__(self) -> None:
-        self.base_url = "https://api.github.com"
+        host = GITHUB_HOST.strip() or "github.com"
+        self.base_url = f"https://{host}/api/v3" if host != "github.com" else "https://api.github.com"
+        token = GITHUB_TOKEN.strip()
+        user = GITHUB_USER.strip()
+        if user and token:
+            credential = base64.b64encode(f"{user}:{token}".encode()).decode()
+            auth_header = f"Basic {credential}"
+        elif token:
+            auth_header = f"Bearer {token}"
+        else:
+            auth_header = ""
         self.headers = {
             "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {GITHUB_TOKEN}",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+        if auth_header:
+            self.headers["Authorization"] = auth_header
 
     def create_issue_comment(self, repo: str, issue_number: int, body: str) -> Dict[str, Any]:
         url = f"{self.base_url}/repos/{repo}/issues/{issue_number}/comments"

@@ -13,6 +13,8 @@ DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "queue.db")))
 WORKER_LOCK_PATH = Path(os.getenv("WORKER_LOCK_PATH", str(DATA_DIR / "worker.lock")))
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+GITHUB_USER = os.getenv("GITHUB_USER", "")
+GITHUB_HOST = os.getenv("GITHUB_HOST", "github.com")
 GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 CODEX_API_KEY = os.getenv("CODEX_API_KEY", os.getenv("OPENAI_API_KEY", ""))
 
