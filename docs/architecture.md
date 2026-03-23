@@ -10,7 +10,7 @@
 
 - `app/webhook_server.py`
   - 驗證 `X-Hub-Signature-256`
-  - 支援 `issues(opened/labeled)`、`pull_request(opened)`
+  - 支援 `issues(opened/reopened/labeled)`、`pull_request(opened)`
   - 使用 `processed_events` 去重
   - 寫入 `jobs`（`status=queued`）
 

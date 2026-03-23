@@ -7,6 +7,7 @@ DATA_DIR = BASE_DIR / "data"
 REPOS_DIR = BASE_DIR / "repos"
 PROMPTS_DIR = BASE_DIR / "app" / "prompts"
 CODEX_LOGS_DIR = Path(os.getenv("CODEX_LOGS_DIR", str(DATA_DIR / "codex_logs")))
+WORKER_LOGS_DIR = Path(os.getenv("WORKER_LOGS_DIR", str(DATA_DIR / "worker_logs")))
 
 DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "queue.db")))
 WORKER_LOCK_PATH = Path(os.getenv("WORKER_LOCK_PATH", str(DATA_DIR / "worker.lock")))

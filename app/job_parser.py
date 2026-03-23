@@ -20,16 +20,24 @@ def parse_job_from_webhook(
     action: str,
     delivery_id: str,
     payload: Dict[str, Any],
+    ignore_context: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
+    def ignored(reason: str, **fields: Any) -> None:
+        if ignore_context is not None:
+            ignore_context.clear()
+            ignore_context.update({"reason": reason, **fields})
+
     repo_info = payload.get("repository") or {}
     repo_name = repo_info.get("full_name")
     if not repo_name:
+        ignored("missing_repository_full_name")
         return None
 
-    if event_name == "issues" and action in {"opened", "labeled"}:
+    if event_name == "issues" and action in {"opened", "reopened", "labeled"}:
         issue = payload.get("issue") or {}
         issue_number = issue.get("number")
         if issue_number is None:
+            ignored("missing_issue_number")
             return None
         model = _extract_model_command(issue.get("body", "") or "")
 
@@ -55,6 +63,7 @@ def parse_job_from_webhook(
         pr = payload.get("pull_request") or {}
         pr_number = pr.get("number")
         if pr_number is None:
+            ignored("missing_pr_number")
             return None
         model = _extract_model_command(pr.get("body", "") or "")
         return {
@@ -69,4 +78,5 @@ def parse_job_from_webhook(
             "payload": payload,
         }
 
+    ignored("unsupported_event_action", supported_events=["issues.opened", "issues.reopened", "issues.labeled", "pull_request.opened"])
     return None

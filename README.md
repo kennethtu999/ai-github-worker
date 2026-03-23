@@ -4,7 +4,7 @@
 
 ## 功能摘要
 
-1. 支援 webhook：issues（opened/labeled）、pull_request（opened）
+1. 支援 webhook：issues（opened/reopened/labeled）、pull_request（opened）
 2. 使用 SQLite（`data/queue.db`）作為唯一 queue
 3. scheduler 每 5 秒 claim 一筆 job，透過 `data/worker.lock` 保證單工 worker
 4. issue webhook 進來後，worker 會以 issue title/body 驅動 Codex 無人介入執行，成功後自動 push branch 並發 PR
